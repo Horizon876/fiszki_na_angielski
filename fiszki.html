@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interaktywne Fiszki – Spaced Repetition</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --hard: #ef4444;
+      --med: #f59e0b;
+      --easy: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    .container { width: 100%; max-width: 650px; display: flex; flex-direction: column; gap: 16px; }
+    header { text-align: center; margin-bottom: 8px; }
+    h1 { font-size: 1.6rem; font-weight: 700; color: #60a5fa; margin-bottom: 6px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 12px; border: 1px solid #334155; }
+    select, button.reset-btn { background: #334155; color: #fff; border: 1px solid #475569; padding: 8px 12px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; outline: none; }
+    select:focus { border-color: var(--primary); }
+    .stats-bar { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-muted); padding: 4px 8px; }
+    .progress-container { width: 100%; height: 8px; background: #334155; border-radius: 4px; overflow: hidden; display: flex; }
+    .progress-mastered { background: var(--easy); height: 100%; transition: width 0.3s; }
+    .progress-learning { background: var(--med); height: 100%; transition: width 0.3s; }
+    
+    /* Fiszka */
+    .flashcard-wrapper { perspective: 1000px; width: 100%; height: 260px; cursor: pointer; }
+    .flashcard { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.4s; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); }
+    .flashcard.flipped { transform: rotateY(180deg); }
+    .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 24px; text-align: center; border-radius: 16px; border: 1px solid #334155; background: var(--card-bg); }
+    .card-back { transform: rotateY(180deg); background: #1a2333; border-color: #3b82f6; }
+    .category-badge { position: absolute; top: 14px; font-size: 0.75rem; background: #0f172a; color: #93c5fd; padding: 4px 10px; border-radius: 20px; border: 1px solid #1e3a8a; }
+    .card-direction { position: absolute; top: 14px; right: 14px; font-size: 0.75rem; color: var(--text-muted); }
+    .card-text { font-size: 1.45rem; font-weight: 600; line-height: 1.4; color: #ffffff; }
+    .card-subtext { margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); }
+    .hint-tap { position: absolute; bottom: 12px; font-size: 0.75rem; color: #64748b; }
+
+    /* Przyciski oceny */
+    .action-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; opacity: 0.3; pointer-events: none; transition: opacity 0.2s; }
+    .action-buttons.active { opacity: 1; pointer-events: auto; }
+    .btn-rating { border: none; border-radius: 10px; padding: 14px 8px; font-size: 0.95rem; font-weight: 600; cursor: pointer; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: transform 0.1s, filter 0.2s; }
+    .btn-rating:active { transform: scale(0.97); }
+    .btn-hard { background: var(--hard); }
+    .btn-med { background: var(--med); }
+    .btn-easy { background: var(--easy); }
+    .btn-sub { font-size: 0.7rem; font-weight: 400; opacity: 0.9; }
+
+    .instructions { font-size: 0.75rem; text-align: center; color: #64748b; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Super Fiszki SRS</h1>
+    <p style="font-size: 0.85rem; color: var(--text-muted);">385 słówek &bull; Inteligentne powtórki &bull; Obie strony</p>
+  </header>
+
+  <div class="controls">
+    <select id="modeSelect">
+      <option value="en-pl">🇬🇧 Angielski ➔ 🇵🇱 Polski</option>
+      <option value="pl-en">🇵🇱 Polski ➔ 🇬🇧 Angielski</option>
+      <option value="mix" selected>🔀 Mix (oba kierunki losowo)</option>
+    </select>
+    
+    <select id="categorySelect">
+      <option value="ALL">Wszystkie kategorie (385 słów)</option>
+    </select>
+
+    <button class="reset-btn" id="resetBtn" title="Resetuj postęp dla tego trybu">↺ Reset</button>
+  </div>
+
+  <div class="stats-bar">
+    <span>Opanowane: <b id="statMastered" style="color:var(--easy);">0</b></span>
+    <span>W trakcie: <b id="statLearning" style="color:var(--med);">0</b></span>
+    <span>Pozostało w sesji: <b id="statQueue" style="color:#60a5fa;">0</b></span>
+  </div>
+
+  <div class="progress-container">
+    <div id="progMastered" class="progress-mastered" style="width: 0%;"></div>
+    <div id="progLearning" class="progress-learning" style="width: 0%;"></div>
+  </div>
+
+  <div class="flashcard-wrapper" id="cardWrapper">
+    <div class="flashcard" id="flashcard">
+      <div class="card-face card-front">
+        <span class="category-badge" id="frontCategory">Kategoria</span>
+        <span class="card-direction" id="frontDirection">EN ➔ PL</span>
+        <div class="card-text" id="frontText">Word</div>
+        <span class="hint-tap">Kliknij fiszkę lub wciśnij spację, aby obrócić</span>
+      </div>
+      <div class="card-face card-back">
+        <span class="category-badge" id="backCategory">Kategoria</span>
+        <div class="card-text" id="backText">Tłumaczenie</div>
+        <span class="hint-tap">Oceń znajomość poniżej:</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="action-buttons" id="actionButtons">
+    <button class="btn-rating btn-hard" id="btnHard">
+      Nie wiem (1)
+      <span class="btn-sub">powtórz zaraz</span>
+    </button>
+    <button class="btn-rating btn-med" id="btnMed">
+      Średnio (2)
+      <span class="btn-sub">powtórz niedługo</span>
+    </button>
+    <button class="btn-rating btn-easy" id="btnEasy">
+      Łatwe (3)
+      <span class="btn-sub">opanowane</span>
+    </button>
+  </div>
+
+  <div class="instructions">
+    Skróty: <b>Spacja</b> = Obróć | <b>1</b> = Nie wiem | <b>2</b> = Średnio | <b>3</b> = Łatwe
+  </div>
+</div>
+
+<script>
+// Pełna baza 385 słów bez żadnych braków
+const VOCAB = [
+  // Państwo i polityka (41)
+  ["act", "akt (prawny), ustawa; czyn", "Państwo i polityka"],
+  ["appoint", "mianować, wyznaczać", "Państwo i polityka"],
+  ["approve", "zatwierdzać, akceptować", "Państwo i polityka"],
+  ["ballot paper", "karta do głosowania", "Państwo i polityka"],
+  ["ban", "zakazać, zabronić", "Państwo i polityka"],
+  ["be governed by", "być rządzonym/zarządzanym/kierowanym przez", "Państwo i polityka"],
+  ["boost the economy", "pobudzać wzrost gospodarczy, ożywiać gospodarkę", "Państwo i polityka"],
+  ["citizen", "obywatel", "Państwo i polityka"],
+  ["coalition government", "rząd koalicyjny", "Państwo i polityka"],
+  ["commission", "komisja", "Państwo i polityka"],
+  ["congress", "kongres", "Państwo i polityka"],
+  ["constitution", "konstytucja", "Państwo i polityka"],
+  ["Constitutional Tribunal", "Trybunał Konstytucyjny", "Państwo i polityka"],
+  ["court", "sąd", "Państwo i polityka"],
+  ["current affairs", "sprawy bieżące, aktualne wydarzenia", "Państwo i polityka"],
+  ["democracy", "demokracja", "Państwo i polityka"],
+  ["elected", "wybrany", "Państwo i polityka"],
+  ["election", "wybory", "Państwo i polityka"],
+  ["executive branch", "władza wykonawcza", "Państwo i polityka"],
+  ["federal republic", "republika federalna", "Państwo i polityka"],
+  ["free trade", "wolny handel", "Państwo i polityka"],
+  ["head of state", "głowa państwa", "Państwo i polityka"],
+  ["hold elections", "przeprowadzać wybory", "Państwo i polityka"],
+  ["judicial branch", "władza sądownicza", "Państwo i polityka"],
+  ["landslide victory", "zwycięstwo odniesione przytłaczającą większością głosów", "Państwo i polityka"],
+  ["legislative branch", "władza ustawodawcza", "Państwo i polityka"],
+  ["lower taxes", "obniżać podatki; niższe podatki", "Państwo i polityka"],
+  ["Member of Parliament / MP", "poseł, członek parlamentu", "Państwo i polityka"],
+  ["member state", "państwo członkowskie", "Państwo i polityka"],
+  ["monarchy", "monarchia", "Państwo i polityka"],
+  ["parliament", "parlament", "Państwo i polityka"],
+  ["pass a law", "uchwalić ustawę, ustanowić prawo", "Państwo i polityka"],
+  ["political party", "partia polityczna", "Państwo i polityka"],
+  ["prime minister", "premier", "Państwo i polityka"],
+  ["reject (proposals)", "odrzucać (propozycje, wnioski)", "Państwo i polityka"],
+  ["run for mayor", "ubiegać się o urząd burmistrza", "Państwo i polityka"],
+  ["senate", "senat", "Państwo i polityka"],
+  ["tax evasion", "uchylanie się od płacenia podatków", "Państwo i polityka"],
+  ["unemployment", "bezrobocie", "Państwo i polityka"],
+  ["visa", "wiza", "Państwo i polityka"],
+  ["vote (for sb)", "głosować (na kogoś)", "Państwo i polityka"],
+
+  // Ministerstwa i agencje rządowe (14)
+  ["Arts Council", "instytucja promująca i wspierająca działalność kulturalną", "Ministerstwa i agencje rządowe"],
+  ["be responsible for", "być odpowiedzialnym za, odpowiadać za", "Ministerstwa i agencje rządowe"],
+  ["child support", "alimenty na dziecko", "Ministerstwa i agencje rządowe"],
+  ["collect taxes", "ściągać/pobierać podatki", "Ministerstwa i agencje rządowe"],
+  ["community issues", "problemy lokalnych społeczności", "Ministerstwa i agencje rządowe"],
+  ["Department of Health & Social Care", "(bryt.) Ministerstwo Zdrowia i Opieki Społecznej", "Ministerstwa i agencje rządowe"],
+  ["Department of Work & Pensions", "(bryt.) Ministerstwo Pracy i Emerytur", "Ministerstwa i agencje rządowe"],
+  ["Driver and Vehicle Licensing Agency (DVLA)", "(bryt.) agencja rządowa odpowiedzialna za pobieranie podatku drogowego i wydawanie praw jazdy", "Ministerstwa i agencje rządowe"],
+  ["HM Revenue & Customs", "(bryt.) Urząd Skarbowy i Celny", "Ministerstwa i agencje rządowe"],
+  ["HM Treasury", "(bryt.) Ministerstwo Skarbu", "Ministerstwa i agencje rządowe"],
+  ["issue", "wydawać (np. pozwolenia, dokumenty)", "Ministerstwa i agencje rządowe"],
+  ["Ministry of Defence", "Ministerstwo Obrony", "Ministerstwa i agencje rządowe"],
+  ["Ministry of Justice", "Ministerstwo Sprawiedliwości", "Ministerstwa i agencje rządowe"],
+  ["promote", "propagować, promować", "Ministerstwa i agencje rządowe"],
+
+  // Prawo, przestępczość i wymiar sprawiedliwości (60)
+  ["accuse", "oskarżać, obwiniać", "Prawo i przestępczość"],
+  ["arrest", "zatrzymanie, aresztowanie", "Prawo i przestępczość"],
+  ["arson", "podpalenie", "Prawo i przestępczość"],
+  ["arsonist", "podpalacz", "Prawo i przestępczość"],
+  ["assault", "napadać, atakować", "Prawo i przestępczość"],
+  ["be a victim of sth", "być ofiarą czegoś", "Prawo i przestępczość"],
+  ["be released / be out on bail", "wyjść na wolność za kaucją", "Prawo i przestępczość"],
+  ["blame", "winić, obwiniać", "Prawo i przestępczość"],
+  ["burglar", "włamywacz", "Prawo i przestępczość"],
+  ["burglary", "kradzież z włamaniem", "Prawo i przestępczość"],
+  ["burgle (sth)", "włamać się (dokądś), okraść (coś)", "Prawo i przestępczość"],
+  ["car theft", "kradzież samochodu", "Prawo i przestępczość"],
+  ["car thief", "złodziej samochodów", "Prawo i przestępczość"],
+  ["charge (sb with)", "oskarżać (kogoś o)", "Prawo i przestępczość"],
+  ["clue", "ślad, trop, wskazówka, poszlaka", "Prawo i przestępczość"],
+  ["commit arson", "dokonać podpalenia", "Prawo i przestępczość"],
+  ["convict", "więzień; skazaniec", "Prawo i przestępczość"],
+  ["court order", "nakaz sądowy", "Prawo i przestępczość"],
+  ["crime scene", "miejsce zbrodni", "Prawo i przestępczość"],
+  ["cybercrime", "cyberprzestępstwo", "Prawo i przestępczość"],
+  ["defendant", "pozwany, oskarżony (w sprawach karnych)", "Prawo i przestępczość"],
+  ["deterrence", "odstraszanie", "Prawo i przestępczość"],
+  ["do time", "odsiadywać wyrok", "Prawo i przestępczość"],
+  ["gang", "banda, gang", "Prawo i przestępczość"],
+  ["give a warning", "ostrzegać", "Prawo i przestępczość"],
+  ["hijacking", "uprowadzenie/porwanie (np. samolotu, statku, pojazdu)", "Prawo i przestępczość"],
+  ["incapacitation", "ubezwłasnowolnienie", "Prawo i przestępczość"],
+  ["inmate", "więzień", "Prawo i przestępczość"],
+  ["judge", "sędzia (w sądzie)", "Prawo i przestępczość"],
+  ["kidnap", "porwać, uprowadzić", "Prawo i przestępczość"],
+  ["kidnapper", "porywacz", "Prawo i przestępczość"],
+  ["kidnapping", "porwanie, uprowadzenie", "Prawo i przestępczość"],
+  ["law enforcement official", "funkcjonariusz organów ścigania, stróż prawa", "Prawo i przestępczość"],
+  ["minor offence", "drobne wykroczenie", "Prawo i przestępczość"],
+  ["mug", "napadać (zaatakować i obrabować w miejscu publicznym)", "Prawo i przestępczość"],
+  ["mugger", "rabuś, bandyta uliczny", "Prawo i przestępczość"],
+  ["mugging", "rozbój, napad (uliczny)", "Prawo i przestępczość"],
+  ["on parole", "na zwolnieniu warunkowym", "Prawo i przestępczość"],
+  ["pickpocket (rzeczownik)", "kieszonkowiec", "Prawo i przestępczość"],
+  ["pickpocket (czasownik)", "okradać (kieszonkowo)", "Prawo i przestępczość"],
+  ["pickpocketing", "kradzież kieszonkowa", "Prawo i przestępczość"],
+  ["press charges", "wnosić/stawiać zarzuty", "Prawo i przestępczość"],
+  ["punishment", "kara", "Prawo i przestępczość"],
+  ["rehabilitation", "resocjalizacja", "Prawo i przestępczość"],
+  ["release", "wypuścić (na wolność)", "Prawo i przestępczość"],
+  ["retribution", "kara; odwet", "Prawo i przestępczość"],
+  ["rob", "rabować, okradać", "Prawo i przestępczość"],
+  ["robber", "złodziej, przestępca biorący udział w rabunku", "Prawo i przestępczość"],
+  ["robbery", "rabunek, napad (np. na bank)", "Prawo i przestępczość"],
+  ["smuggle", "przemycać", "Prawo i przestępczość"],
+  ["smuggler", "przemytnik", "Prawo i przestępczość"],
+  ["smuggling", "przemyt", "Prawo i przestępczość"],
+  ["suspect", "podejrzany", "Prawo i przestępczość"],
+  ["suspension (of execution of penalty)", "zawieszenie (wykonania kary)", "Prawo i przestępczość"],
+  ["trial", "proces sądowy", "Prawo i przestępczość"],
+  ["vandal", "wandal, chuligan", "Prawo i przestępczość"],
+  ["vandalise", "niszczyć, dewastować", "Prawo i przestępczość"],
+  ["vandalism", "wandalizm, chuligaństwo", "Prawo i przestępczość"],
+  ["verdict", "wyrok", "Prawo i przestępczość"],
+  ["witness a crime", "być świadkiem przestępstwa", "Prawo i przestępczość"],
+
+  // Problemy i zjawiska społeczne (32)
+  ["animal welfare", "dobrostan zwierząt", "Problemy i zjawiska społeczne"],
+  ["be duty bound", "być zobowiązanym", "Problemy i zjawiska społeczne"],
+  ["censorship", "cenzura", "Problemy i zjawiska społeczne"],
+  ["children’s rights", "prawa dziecka", "Problemy i zjawiska społeczne"],
+  ["diverse community", "zróżnicowana (np. kulturowo) społeczność/wspólnota", "Problemy i zjawiska społeczne"],
+  ["environmental protection", "ochrona przyrody", "Problemy i zjawiska społeczne"],
+  ["human trafficking", "handel ludźmi", "Problemy i zjawiska społeczne"],
+  ["moral duty", "moralny obowiązek", "Problemy i zjawiska społeczne"],
+  ["outburst", "wybuch (np. gniewu)", "Problemy i zjawiska społeczne"],
+  ["poverty", "bieda, ubóstwo", "Problemy i zjawiska społeczne"],
+  ["prejudice", "uprzedzenie", "Problemy i zjawiska społeczne"],
+  ["public funds", "fundusze publiczne", "Problemy i zjawiska społeczne"],
+  ["racial equality", "równouprawnienie ras", "Problemy i zjawiska społeczne"],
+  ["racially diverse", "zróżnicowany rasowo", "Problemy i zjawiska społeczne"],
+  ["report for duty", "zameldować się na stanowisku pracy", "Problemy i zjawiska społeczne"],
+  ["slavery", "niewolnictwo", "Problemy i zjawiska społeczne"],
+  ["terrorism", "terroryzm", "Problemy i zjawiska społeczne"],
+  ["demonstration", "demonstracja, manifestacja", "Problemy i zjawiska społeczne"],
+  ["diversify", "urozmaicić, zróżnicować", "Problemy i zjawiska społeczne"],
+  ["divorce", "rozwód", "Problemy i zjawiska społeczne"],
+  ["economic migration", "emigracja zarobkowa", "Problemy i zjawiska społeczne"],
+  ["fad", "(chwilowa) moda; fanaberia", "Problemy i zjawiska społeczne"],
+  ["fostering", "wychowywanie w rodzinie zastępczej", "Problemy i zjawiska społeczne"],
+  ["freedom of movement", "swoboda przemieszczania się", "Problemy i zjawiska społeczne"],
+  ["homelessness", "bezdomność", "Problemy i zjawiska społeczne"],
+  ["hooligan", "chuligan", "Problemy i zjawiska społeczne"],
+  ["protest march", "marsz protestacyjny", "Problemy i zjawiska społeczne"],
+  ["remain (in)", "pozostawać (w)", "Problemy i zjawiska społeczne"],
+  ["riot", "zamieszki, rozruchy", "Problemy i zjawiska społeczne"],
+  ["social distancing", "dystans społeczny, utrzymywanie bezpiecznej odległości od innych osób", "Problemy i zjawiska społeczne"],
+  ["urban development", "rozwój obszarów miejskich", "Problemy i zjawiska społeczne"],
+  ["state institution", "instytucja państwowa", "Problemy i zjawiska społeczne"],
+
+  // Konflikty wewnętrzne i międzynarodowe (12)
+  ["bring an end to sth", "doprowadzić do zakończenia czegoś, zakończyć coś", "Konflikty"],
+  ["environmental activist", "aktywista ekologiczny", "Konflikty"],
+  ["fight corruption", "przeciwdziałać korupcji", "Konflikty"],
+  ["hold a protest", "zorganizować protest", "Konflikty"],
+  ["neighbouring nations", "sąsiadujące kraje/narody", "Konflikty"],
+  ["peace agreement", "porozumienie pokojowe", "Konflikty"],
+  ["peacekeeper", "rozjemca; żołnierz sił pokojowych", "Konflikty"],
+  ["rally", "brać udział w wiecu", "Konflikty"],
+  ["reach an agreement", "osiągnąć porozumienie", "Konflikty"],
+  ["resolve a conflict", "rozwiązać konflikt", "Konflikty"],
+  ["sign a petition", "podpisać petycję", "Konflikty"],
+  ["vow", "ślubować", "Konflikty"],
+
+  // Organizacje międzynarodowe (9)
+  ["FRONTEX (European Border and Coast Guard Agency)", "Europejska Agencja Straży Granicznej i Przybrzeżnej", "Organizacje międzynarodowe"],
+  ["IMF (International Monetary Fund)", "MFW (Międzynarodowy Fundusz Walutowy)", "Organizacje międzynarodowe"],
+  ["INTERPOL (International Criminal Police Organisation)", "Międzynarodowa Organizacja Policji Kryminalnej", "Organizacje międzynarodowe"],
+  ["NATO (North Atlantic Treaty Organisation)", "Organizacja Traktatu Północnoatlantyckiego", "Organizacje międzynarodowe"],
+  ["UN (United Nations)", "ONZ (Organizacja Narodów Zjednoczonych)", "Organizacje międzynarodowe"],
+  ["UNESCO (United Nations Educational, Scientific and Cultural Organisation)", "Organizacja Narodów Zjednoczonych do spraw Edukacji, Nauki i Kultury", "Organizacje międzynarodowe"],
+  ["UNICEF (United Nations Children's Fund)", "Fundusz Narodów Zjednoczonych na Rzecz Dzieci", "Organizacje międzynarodowe"],
+  ["WHO (World Health Organisation)", "Światowa Organizacja Zdrowia", "Organizacje międzynarodowe"],
+  ["WTO (World Trade Organisation)", "Światowa Organizacja Handlu", "Organizacje międzynarodowe"],
+
+  // Religia (18)
+  ["atheism", "ateizm", "Religia"],
+  ["Buddhism", "buddyzm", "Religia"],
+  ["Buddhist", "buddyjski", "Religia"],
+  ["cathedral", "katedra", "Religia"],
+  ["Catholicism", "katolicyzm", "Religia"],
+  ["Christian", "chrześcijański", "Religia"],
+  ["Christianity", "chrześcijaństwo", "Religia"],
+  ["church", "kościół", "Religia"],
+  ["Hindu", "hinduski", "Religia"],
+  ["Hinduism", "hinduizm", "Religia"],
+  ["Islam", "islam", "Religia"],
+  ["Jew", "Żyd/Żydówka", "Religia"],
+  ["Judaism", "judaizm", "Religia"],
+  ["mosque", "meczet", "Religia"],
+  ["Muslim", "muzułmański, islamski", "Religia"],
+  ["synagogue", "synagoga", "Religia"],
+  ["temple", "świątynia", "Religia"],
+  ["worship", "oddawać cześć (Bogu/bogu), praktykować religię", "Religia"],
+
+  // Gospodarka (14)
+  ["affluent", "zamożny, bogaty", "Gospodarka"],
+  ["business venture", "przedsięwzięcie handlowe", "Gospodarka"],
+  ["economic inequality", "nierówności ekonomiczne", "Gospodarka"],
+  ["family-run business", "firma rodzinna", "Gospodarka"],
+  ["fund (rzeczownik)", "fundusz; fundacja", "Gospodarka"],
+  ["GDP (Gross Domestic Product)", "PKB (produkt krajowy brutto)", "Gospodarka"],
+  ["income tax", "podatek dochodowy", "Gospodarka"],
+  ["inflation rate", "wskaźnik/stopa inflacji", "Gospodarka"],
+  ["international trade", "handel międzynarodowy", "Gospodarka"],
+  ["invest (money)", "inwestować (pieniądze)", "Gospodarka"],
+  ["investment", "inwestycja", "Gospodarka"],
+  ["monetary value", "wartość pieniężna", "Gospodarka"],
+  ["prosperity", "dobrobyt; dobra koniunktura", "Gospodarka"],
+  ["standard of living", "stopa życiowa, poziom życia", "Gospodarka"],
+
+  // Pogoda (25)
+  ["be a fair-weather friend (idm)", "być fałszywym przyjacielem", "Pogoda"],
+  ["be on cloud nine (idm)", "być w siódmym niebie", "Pogoda"],
+  ["blizzard", "zamieć śnieżna, śnieżyca", "Pogoda"],
+  ["brighten up one's day (idm)", "ucieszyć kogoś", "Pogoda"],
+  ["chase rainbows (idm)", "gonić za marzeniami", "Pogoda"],
+  ["cool breeze", "chłodny wiaterek", "Pogoda"],
+  ["electrical storm", "burza z piorunami", "Pogoda"],
+  ["feel under the weather (idm)", "źle się czuć", "Pogoda"],
+  ["fog", "mgła", "Pogoda"],
+  ["forecast", "prognozować, przewidywać", "Pogoda"],
+  ["frost", "mróz", "Pogoda"],
+  ["gust", "podmuch (wiatru)", "Pogoda"],
+  ["hail", "grad", "Pogoda"],
+  ["have a face like thunder (idm)", "być wściekłym", "Pogoda"],
+  ["heat wave", "fala upałów", "Pogoda"],
+  ["high wind", "silny wiatr", "Pogoda"],
+  ["humidity", "wilgotność", "Pogoda"],
+  ["hurricane", "huragan", "Pogoda"],
+  ["in the cold light of day (idm)", "(rozważyć coś) na chłodno", "Pogoda"],
+  ["light drizzle", "lekka mżawka", "Pogoda"],
+  ["lightning", "błyskawica, piorun", "Pogoda"],
+  ["rain cats and dogs (idm)", "lać jak z cebra", "Pogoda"],
+  ["tornado", "tornado", "Pogoda"],
+  ["torrential downpour", "ogromna ulewa", "Pogoda"],
+  ["torrential rain", "rzęsisty deszcz", "Pogoda"],
+
+  // Klęski żywiołowe (15)
+  ["aftershock", "wstrząs wtórny/następczy (po trzęsieniu ziemi)", "Klęski żywiołowe"],
+  ["collapse", "zawalić się, runąć", "Klęski żywiołowe"],
+  ["damage infrastructure", "uszkodzić/zniszczyć infrastrukturę", "Klęski żywiołowe"],
+  ["destruction", "zniszczenie, zagłada", "Klęski żywiołowe"],
+  ["earthquake", "trzęsienie ziemi", "Klęski żywiołowe"],
+  ["emergency shelter", "schronienie tymczasowe", "Klęski żywiołowe"],
+  ["epicentre", "epicentrum", "Klęski żywiołowe"],
+  ["extreme weather", "ekstremalne warunki pogodowe", "Klęski żywiołowe"],
+  ["fault line", "linia uskoku", "Klęski żywiołowe"],
+  ["magnitude", "magnituda", "Klęski żywiołowe"],
+  ["rescuer", "ratownik", "Klęski żywiołowe"],
+  ["rubble", "rumowisko, gruzy", "Klęski żywiołowe"],
+  ["ruins", "ruiny", "Klęski żywiołowe"],
+  ["survivor", "osoba, która ocalała (np. z wypadku, katastrofy)", "Klęski żywiołowe"],
+  ["unstable land", "niestabilny grunt", "Klęski żywiołowe"],
+
+  // Klimat (10)
+  ["arid region", "suchy region", "Klimat"],
+  ["biological diversity", "różnorodność biologiczna", "Klimat"],
+  ["climate change", "zmiana klimatu", "Klimat"],
+  ["cold snap", "fala chłodnego powietrza, nagłe ochłodzenie", "Klimat"],
+  ["cause crops to fail", "powodować straty w uprawach", "Klimat"],
+  ["drought", "susza", "Klimat"],
+  ["famine", "klęska głodu", "Klimat"],
+  ["flood", "zalewać", "Klimat"],
+  ["frigid temperatures", "ujemne/niskie temperatury", "Klimat"],
+  ["tropical area", "strefa tropikalna", "Klimat"],
+
+  // Rośliny (10)
+  ["algae", "wodorosty, glony", "Rośliny"],
+  ["bark", "kora (na drzewie)", "Rośliny"],
+  ["branch", "gałąź", "Rośliny"],
+  ["leaf", "liść", "Rośliny"],
+  ["photosynthesis", "fotosynteza", "Rośliny"],
+  ["pollen", "pyłek kwiatowy", "Rośliny"],
+  ["root", "korzeń", "Rośliny"],
+  ["seed", "nasiono", "Rośliny"],
+  ["soil", "gleba, ziemia", "Rośliny"],
+  ["trunk", "pień", "Rośliny"],
+
+  // Zwierzęta (48)
+  ["amphibian", "płaz", "Zwierzęta"],
+  ["anthill", "mrowisko", "Zwierzęta"],
+  ["badger", "borsuk", "Zwierzęta"],
+  ["beaver", "bóbr", "Zwierzęta"],
+  ["bee", "pszczoła", "Zwierzęta"],
+  ["bird", "ptak", "Zwierzęta"],
+  ["breed", "rozmnażać się", "Zwierzęta"],
+  ["burrow", "jama, nora", "Zwierzęta"],
+  ["deer", "jeleń", "Zwierzęta"],
+  ["den", "jaskinia (np. lwa)", "Zwierzęta"],
+  ["earthworm", "dżdżownica", "Zwierzęta"],
+  ["elk", "łoś", "Zwierzęta"],
+  ["fish", "ryba", "Zwierzęta"],
+  ["flock", "stado (np. ptaków, owiec)", "Zwierzęta"],
+  ["frog", "żaba", "Zwierzęta"],
+  ["grassland", "formacja roślinna o charakterze stepowym", "Zwierzęta"],
+  ["hatch", "wykluwać się", "Zwierzęta"],
+  ["herd", "stado (np. koni)", "Zwierzęta"],
+  ["hive", "ul", "Zwierzęta"],
+  ["insect", "owad", "Zwierzęta"],
+  ["invertebrate", "bezkręgowiec", "Zwierzęta"],
+  ["Komodo dragon", "waran/smok z Komodo", "Zwierzęta"],
+  ["lay (eggs)", "składać (jaja)", "Zwierzęta"],
+  ["lifespan", "długość życia", "Zwierzęta"],
+  ["lion", "lew", "Zwierzęta"],
+  ["lizard", "jaszczurka", "Zwierzęta"],
+  ["lodge", "żeremie (siedlisko bobra)", "Zwierzęta"],
+  ["mammal", "ssak", "Zwierzęta"],
+  ["mate", "łączyć się w pary", "Zwierzęta"],
+  ["newt", "traszka", "Zwierzęta"],
+  ["nest", "gniazdo", "Zwierzęta"],
+  ["ostrich", "struś", "Zwierzęta"],
+  ["pack", "wataha (np. wilków), sfora (np. dzikich psów)", "Zwierzęta"],
+  ["pigeon", "gołąb", "Zwierzęta"],
+  ["predator", "drapieżnik", "Zwierzęta"],
+  ["prey", "zdobycz, ofiara, łup", "Zwierzęta"],
+  ["pride", "stado lwów", "Zwierzęta"],
+  ["rabbit", "królik", "Zwierzęta"],
+  ["reptile", "gad", "Zwierzęta"],
+  ["school", "ławica (stado ryb)", "Zwierzęta"],
+  ["sett", "nora borsuka", "Zwierzęta"],
+  ["specimen", "okaz", "Zwierzęta"],
+  ["swarm", "rój (np. pszczół)", "Zwierzęta"],
+  ["toad", "ropucha", "Zwierzęta"],
+  ["trout", "pstrąg", "Zwierzęta"],
+  ["turtle", "żółw wodny", "Zwierzęta"],
+  ["wasp", "osa", "Zwierzęta"],
+  ["worm", "robak; dżdżownica", "Zwierzęta"],
+
+  // Przestrzeń kosmiczna (17)
+  ["asteroid", "asteroida", "Przestrzeń kosmiczna"],
+  ["Big Bang theory", "teoria Wielkiego Wybuchu", "Przestrzeń kosmiczna"],
+  ["black hole", "czarna dziura", "Przestrzeń kosmiczna"],
+  ["celestial body", "ciało niebieskie", "Przestrzeń kosmiczna"],
+  ["comet", "kometa", "Przestrzeń kosmiczna"],
+  ["constellation", "gwiazdozbiór, konstelacja", "Przestrzeń kosmiczna"],
+  ["cosmonaut", "kosmonauta", "Przestrzeń kosmiczna"],
+  ["galaxy", "galaktyka", "Przestrzeń kosmiczna"],
+  ["gravity", "grawitacja, ciążenie", "Przestrzeń kosmiczna"],
+  ["light year", "rok świetlny", "Przestrzeń kosmiczna"],
+  ["meteor shower", "rój/deszcz meteorów", "Przestrzeń kosmiczna"],
+  ["orbit", "orbitować", "Przestrzeń kosmiczna"],
+  ["outer space", "przestrzeń kosmiczna, kosmos", "Przestrzeń kosmiczna"],
+  ["shooting star", "spadająca gwiazda", "Przestrzeń kosmiczna"],
+  ["solar system", "Układ Słoneczny", "Przestrzeń kosmiczna"],
+  ["telescope", "teleskop", "Przestrzeń kosmiczna"],
+  ["vacuum", "próżnia", "Przestrzeń kosmiczna"],
+
+  // Krajobraz (26)
+  ["canyon", "kanion", "Krajobraz"],
+  ["cape", "przylądek", "Krajobraz"],
+  ["cliff", "klif, urwisko", "Krajobraz"],
+  ["delta", "delta (ujście rzeki w postaci kilku odnóg)", "Krajobraz"],
+  ["dune", "wydma", "Krajobraz"],
+  ["farmland", "pole uprawne, grunty rolne", "Krajobraz"],
+  ["foothill", "pagórek", "Krajobraz"],
+  ["glacier", "lodowiec", "Krajobraz"],
+  ["gulf", "zatoka", "Krajobraz"],
+  ["harbour", "port, przystań", "Krajobraz"],
+  ["highland", "wyżyna", "Krajobraz"],
+  ["hill", "wzgórze, pagórek", "Krajobraz"],
+  ["lagoon", "laguna", "Krajobraz"],
+  ["lowland", "niziny", "Krajobraz"],
+  ["peninsula", "półwysep", "Krajobraz"],
+  ["plain", "równina", "Krajobraz"],
+  ["plateau", "płaskowyż", "Krajobraz"],
+  ["pond", "staw", "Krajobraz"],
+  ["rugged", "nierówny, wyboisty", "Krajobraz"],
+  ["snow-capped peak", "pokryty śniegiem szczyt góry", "Krajobraz"],
+  ["stream", "strumień, potok, rzeczka", "Krajobraz"],
+  ["swamp", "bagno, mokradło", "Krajobraz"],
+  ["terrain", "teren", "Krajobraz"],
+  ["valley", "dolina", "Krajobraz"],
+  ["waterfall", "wodospad", "Krajobraz"],
+  ["wetland", "tereny podmokłe/bagienne", "Krajobraz"],
+
+  // Zagrożenie i ochrona środowiska (23)
+  ["be born in captivity", "urodzić się w niewoli", "Zagrożenie i ochrona środowiska"],
+  ["be in danger of sth", "być zagrożonym czymś, być narażonym na coś", "Zagrożenie i ochrona środowiska"],
+  ["break laws", "łamać prawo", "Zagrożenie i ochrona środowiska"],
+  ["cause irreversible damage", "powodować nieodwracalne szkody, nieodwracalnie uszkodzić", "Zagrożenie i ochrona środowiska"],
+  ["clear rainforests", "wycinać lasy deszczowe", "Zagrożenie i ochrona środowiska"],
+  ["conserve", "chronić, zachowywać", "Zagrożenie i ochrona środowiska"],
+  ["drive out wildlife", "wypierać przyrodę (faunę i florę)", "Zagrożenie i ochrona środowiska"],
+  ["ecosystem", "ekosystem", "Zagrożenie i ochrona środowiska"],
+  ["endangered species", "gatunek zagrożony wyginięciem", "Zagrożenie i ochrona środowiska"],
+  ["environmental organisation", "organizacja działająca na rzecz ochrony środowiska", "Zagrożenie i ochrona środowiska"],
+  ["extinction", "wyginięcie; zagłada", "Zagrożenie i ochrona środowiska"],
+  ["fund (czasownik)", "finansować, fundować", "Zagrożenie i ochrona środowiska"],
+  ["habitat destruction", "niszczenie siedlisk", "Zagrożenie i ochrona środowiska"],
+  ["hunting expedition", "wyprawa na polowanie", "Zagrożenie i ochrona środowiska"],
+  ["hunting ground", "łowisko", "Zagrożenie i ochrona środowiska"],
+  ["illegal hunting", "nielegalne polowanie", "Zagrożenie i ochrona środowiska"],
+  ["marine environment", "środowisko morskie", "Zagrożenie i ochrona środowiska"],
+  ["non-profit organisation", "organizacja non-profit (niezarobkowa)", "Zagrożenie i ochrona środowiska"],
+  ["overfishing", "nadmierny odłów, przełowienie", "Zagrożenie i ochrona środowiska"],
+  ["rising sea levels", "wzrost poziomu mórz", "Zagrożenie i ochrona środowiska"],
+  ["sabotage", "sabotować, niszczyć w akcie sabotażu", "Zagrożenie i ochrona środowiska"],
+  ["wipe (sth) out", "zmieść (coś) z powierzchni ziemi", "Zagrożenie i ochrona środowiska"],
+  ["wreak havoc", "siać spustoszenie", "Zagrożenie i ochrona środowiska"],
+
+  // Katastrofy ekologiczne (11)
+  ["be destructive to nature", "oddziaływać destrukcyjnie na przyrodę", "Katastrofy ekologiczne"],
+  ["cause serious health issues", "powodować poważne problemy zdrowotne", "Katastrofy ekologiczne"],
+  ["clean (oil) from the water", "usunąć (ropę) z powierzchni wody", "Katastrofy ekologiczne"],
+  ["damage to the ecosystem", "zniszczenie ekosystemu", "Katastrofy ekologiczne"],
+  ["devastating", "niszczycielski", "Katastrofy ekologiczne"],
+  ["ecological disaster", "katastrofa ekologiczna", "Katastrofy ekologiczne"],
+  ["harvest fish into near extinction", "odławiać ryby niemal do ich wyginięcia", "Katastrofy ekologiczne"],
+  ["neutralise the effects of the spill", "neutralizować skutki wycieku", "Katastrofy ekologiczne"],
+  ["restore the balance", "przywrócić równowagę", "Katastrofy ekologiczne"],
+  ["short-term / long-term effects", "krótkotrwałe / długotrwałe skutki", "Katastrofy ekologiczne"],
+  ["spill", "wyciek", "Katastrofy ekologiczne"]
+];
+
+// Stan aplikacji i pamięć (SRS)
+let stats = JSON.parse(localStorage.getItem('fiszki_stats_v2') || '{}');
+let activeQueue = [];
+let currentCard = null;
+let isFlipped = false;
+
+// Elementy DOM
+const cardWrapper = document.getElementById('cardWrapper');
+const flashcard = document.getElementById('flashcard');
+const frontText = document.getElementById('frontText');
+const backText = document.getElementById('backText');
+const frontCategory = document.getElementById('frontCategory');
+const backCategory = document.getElementById('backCategory');
+const frontDirection = document.getElementById('frontDirection');
+const actionButtons = document.getElementById('actionButtons');
+const modeSelect = document.getElementById('modeSelect');
+const categorySelect = document.getElementById('categorySelect');
+const resetBtn = document.getElementById('resetBtn');
+
+// Wypełnij listę kategorii
+const categories = [...new Set(VOCAB.map(v => v[2]))];
+categories.forEach(cat => {
+  const opt = document.createElement('option');
+  opt.value = cat;
+  opt.textContent = `${cat} (${VOCAB.filter(v => v[2] === cat).length})`;
+  categorySelect.appendChild(opt);
+});
+
+// Pomocnicza funkcja klucza SRS
+function getCardKey(en, dir) {
+  return `${en}_${dir}`;
+}
+
+// Inicjalizacja kolejki
+function initQueue() {
+  const selectedCat = categorySelect.value;
+  const mode = modeSelect.value;
+  let list = VOCAB;
+
+  if (selectedCat !== 'ALL') {
+    list = list.filter(item => item[2] === selectedCat);
+  }
+
+  activeQueue = [];
+  list.forEach(([en, pl, cat]) => {
+    if (mode === 'en-pl' || mode === 'mix') {
+      activeQueue.push({ en, pl, cat, dir: 'en-pl' });
+    }
+    if (mode === 'pl-en' || mode === 'mix') {
+      activeQueue.push({ en, pl, cat, dir: 'pl-en' });
+    }
+  });
+
+  // Losowo przetasuj talię na start
+  activeQueue.sort(() => Math.random() - 0.5);
+  nextCard();
+}
+
+function updateProgress() {
+  const total = activeQueue.length + (currentCard ? 1 : 0);
+  let mastered = 0;
+  let learning = 0;
+
+  // Zliczanie na podstawie zapamiętanych wyników
+  VOCAB.forEach(([en]) => {
+    ['en-pl', 'pl-en'].forEach(d => {
+      const score = stats[getCardKey(en, d)] || 0;
+      if (score >= 3) mastered++;
+      else if (score > 0) learning++;
+    });
+  });
+
+  const totalPossible = VOCAB.length * 2;
+  document.getElementById('statMastered').textContent = mastered;
+  document.getElementById('statLearning').textContent = learning;
+  document.getElementById('statQueue').textContent = activeQueue.length + (currentCard ? 1 : 0);
+
+  document.getElementById('progMastered').style.width = `${(mastered / totalPossible) * 100}%`;
+  document.getElementById('progLearning').style.width = `${(learning / totalPossible) * 100}%`;
+}
+
+function flipCard() {
+  isFlipped = !isFlipped;
+  flashcard.classList.toggle('flipped', isFlipped);
+  actionButtons.classList.toggle('active', isFlipped);
+}
+
+function nextCard() {
+  isFlipped = false;
+  flashcard.classList.remove('flipped');
+  actionButtons.classList.remove('active');
+
+  if (activeQueue.length === 0) {
+    currentCard = null;
+    frontText.textContent = "🎉 Gratulacje!";
+    backText.textContent = "Wszystkie fiszki w tej sesji zostały przejrzane!";
+    frontCategory.textContent = "Koniec sesji";
+    frontDirection.textContent = "";
+    updateProgress();
+    return;
+  }
+
+  // Wybierz kartę z początku kolejki
+  currentCard = activeQueue.shift();
+
+  const isEnToPl = currentCard.dir === 'en-pl';
+  frontText.textContent = isEnToPl ? currentCard.en : currentCard.pl;
+  backText.textContent = isEnToPl ? currentCard.pl : currentCard.en;
+  frontCategory.textContent = currentCard.cat;
+  backCategory.textContent = currentCard.cat;
+  frontDirection.textContent = isEnToPl ? "🇬🇧 EN ➔ 🇵🇱 PL" : "🇵🇱 PL ➔ 🇬🇧 EN";
+
+  updateProgress();
+}
+
+// Obsługa ocen SRS
+function rateCard(rating) {
+  if (!currentCard || !isFlipped) return;
+
+  const key = getCardKey(currentCard.en, currentCard.dir);
+  let score = stats[key] || 0;
+
+  if (rating === 'hard') {
+    // Nie wiedziałem -> reset poziomu, wraca BARDZO szybko (np. za 2-3 karty)
+    stats[key] = 0;
+    const insertPos = Math.min(activeQueue.length, 2 + Math.floor(Math.random() * 2));
+    activeQueue.splice(insertPos, 0, currentCard);
+  } else if (rating === 'med') {
+    // Średnio -> podnieś lekko, powtórz w tej sesji nieco dalej (za 6-10 kart)
+    stats[key] = Math.max(1, score + 1);
+    const insertPos = Math.min(activeQueue.length, 7 + Math.floor(Math.random() * 4));
+    activeQueue.splice(insertPos, 0, currentCard);
+  } else if (rating === 'easy') {
+    // Łatwe -> opanowane, usuwamy z bieżącej aktywnej kolejki, wraca tylko w nowej sesji
+    stats[key] = (score < 3 ? 3 : score + 1);
+  }
+
+  localStorage.setItem('fiszki_stats_v2', JSON.stringify(stats));
+  nextCard();
+}
+
+// Zdarzenia
+cardWrapper.addEventListener('click', flipCard);
+document.getElementById('btnHard').addEventListener('click', (e) => { e.stopPropagation(); rateCard('hard'); });
+document.getElementById('btnMed').addEventListener('click', (e) => { e.stopPropagation(); rateCard('med'); });
+document.getElementById('btnEasy').addEventListener('click', (e) => { e.stopPropagation(); rateCard('easy'); });
+
+modeSelect.addEventListener('change', initQueue);
+categorySelect.addEventListener('change', initQueue);
+
+resetBtn.addEventListener('click', () => {
+  if (confirm("Czy na pewno chcesz zresetować statystyki nauki?")) {
+    stats = {};
+    localStorage.removeItem('fiszki_stats_v2');
+    initQueue();
+  }
+});
+
+// Skróty klawiszowe
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    flipCard();
+  } else if (e.key === '1') {
+    rateCard('hard');
+  } else if (e.key === '2') {
+    rateCard('med');
+  } else if (e.key === '3') {
+    rateCard('easy');
+  }
+});
+
+// Start
+initQueue();
+</script>
+</body>
+</html>
